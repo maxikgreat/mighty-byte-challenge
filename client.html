@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Shortener Test Client</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .form-group { margin: 15px 0; }
+        input, button { padding: 10px; margin: 5px; width: 100%; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .result { background: #e7f3ff; padding: 15px; margin: 10px 0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>URL Shortener Test Client</h1>
+    
+    <div id="status" class="status disconnected">Disconnected</div>
+    
+    <button onclick="connect()">Connect WebSocket</button>
+    
+    <div class="form-group">
+        <input type="url" id="urlInput" placeholder="Enter URL to shorten">
+    </div>
+    
+    <button onclick="shortenUrl()" id="shortenBtn" disabled>Shorten URL</button>
+    
+    <div id="result" class="result" style="display:none;">
+        <h3>Result:</h3>
+        <p id="resultText"></p>
+    </div>
+
+    <script>
+        var serverUrl = "localhost:3000"
+    </script>
+
+    <script>
+        let ws = null;
+        let clientId = null;
+
+        function connect() {
+            ws = new WebSocket(`ws://${serverUrl}`);
+            
+            ws.onopen = () => {
+                document.getElementById('status').textContent = 'Connected';
+                document.getElementById('status').className = 'status connected';
+                document.getElementById('shortenBtn').disabled = false;
+                
+                const savedClientId = localStorage.getItem('clientId');
+                if (savedClientId) {
+                    clientId = savedClientId
+                    console.log('Reconnecting with saved client ID:', savedClientId);
+                    ws.send(JSON.stringify({
+                        type: 'reconnect',
+                        clientId: savedClientId
+                    }));
+                } else {
+                    console.log('Connecting as new client');
+                    ws.send(JSON.stringify({
+                        type: 'connect',
+                    }))
+                }
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'client_id') {
+                    clientId = data.clientId;
+                    localStorage.setItem('clientId', clientId);
+                    console.log('Client ID set:', clientId);
+                } else if (data.type === 'shortened_url') {
+                    showResult(data.shortenedURL);
+                    ws.send(JSON.stringify({
+                        type: 'acknowledgment',
+                        deliveryId: data.deliveryId
+                    }));
+                }
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('status').textContent = 'Disconnected';
+                document.getElementById('status').className = 'status disconnected';
+                document.getElementById('shortenBtn').disabled = true;
+            };
+        }
+
+        function shortenUrl() {
+            const url = document.getElementById('urlInput').value;
+            
+            const headers = { 'Content-Type': 'application/json' };
+            if (clientId) {
+                headers['x-client-id'] = clientId;
+            }
+            
+            fetch(`http://${serverUrl}/url`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ url })
+            }).catch(error => {
+                console.log("Error during POST /url", error.message)
+            })
+        }
+
+        function showResult(shortenedUrl) {
+            const resultDiv = document.getElementById('result');
+            const resultText = document.getElementById('resultText');
+            
+            resultText.innerHTML = `
+                <strong>Shortened URL:</strong> <a href="${shortenedUrl}" target="_blank">${shortenedUrl}</a>
+            `;
+            
+            resultDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
